@@ -3,7 +3,7 @@ title:       gcucurull
 email:       gcucurull@gmail.com
 author:      Guillem Cucurull
 description: "A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff."
-baseurl:     ""
+baseurl:     "/gcucurull.github.io"
 url:         "http://gcucurull.github.io"
 date_format: "%b %-d, %Y"
 
