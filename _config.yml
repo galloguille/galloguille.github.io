@@ -1,10 +1,10 @@
 # Site settings
-title:       galloguille
+title:       gcucurull
 email:       gcucurull@gmail.com
 author:      Guillem Cucurull
 description: "A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff."
 baseurl:     ""
-url:         "http://galloguille.github.io"
+url:         "http://gcucurull.github.io"
 date_format: "%b %-d, %Y"
 
 # Google services
