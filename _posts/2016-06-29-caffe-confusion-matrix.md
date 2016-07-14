@@ -1,7 +1,7 @@
 ---
 layout:     post
 title:      Caffe python layer to print confusion matrix
-date:       2014-06-10 12:31:19
+date:       2016-06-29 12:31:19
 summary:    To view the confusion matrix and the accuracy of a neural network while it is being trained, I coded this easy python layer to print the confusion matrix while training a model with Caffe. 
 categories: caffe python deep-learning
 ---
