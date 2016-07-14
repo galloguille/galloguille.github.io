@@ -3,7 +3,7 @@ title:       gcucurull
 email:       gcucurull@gmail.com
 author:      Guillem Cucurull
 description: ""
-baseurl:     "/gcucurull.github.io"
+baseurl:     ""
 url:         "http://gcucurull.github.io"
 date_format: "%b %-d, %Y"
 
