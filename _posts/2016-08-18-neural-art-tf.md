@@ -190,8 +190,8 @@ def style_loss(style_out, target_out, layers, style_weight_layer):
 
     def style_layer_loss(style_out, target_out, layer):
         '''
-            # returns the style loss for a given layer between
-            # the style image and the target image
+            returns the style loss for a given layer between
+            the style image and the target image
         '''
         def gram_matrix(activation):
             flat = tf.reshape(activation, [-1, get_shape(activation)[3]]) # shape[3] is the number of feature maps
@@ -210,7 +210,6 @@ def style_loss(style_out, target_out, layers, style_weight_layer):
         # multiply the loss by it's weight
         st_loss = tf.mul(st_loss, style_weight_layer, name='style_loss')
 
-        #tf.add_to_collection('losses', st_loss)
         return st_loss
 
     losses = []
@@ -220,8 +219,11 @@ def style_loss(style_out, target_out, layers, style_weight_layer):
 
     return losses
 ```
+The style loss implementation is very easy too. For every layer passed as argument in `layers` the function `style_layer_loss()` is called and the loss for each layer is stored in a list, which is the function return value. For each layer, the gram matrices of the style source and target image are computed, and then the loss for that layer is calculated as stated in the formula with the operations defined in the line:
 
-asdasd
+```python
+st_loss = tf.mul(tf.reduce_sum(tf.square(tf.sub(target_gram, style_gram))), 1./((N**2) * (M**2)))
+```
 
 ### Tensorflow implementation
 
@@ -230,9 +232,7 @@ asdasd
 g = tf.Graph()
 with g.as_default(), g.device('/gpu:0'), tf.Session() as sess:
     # init randomly
-    # white noise
     target = tf.random_normal((1,)+content.shape)
-
     target_pre_var = tf.Variable(target)
 
     # build model with empty layer activations for generated target image
@@ -241,9 +241,8 @@ with g.as_default(), g.device('/gpu:0'), tf.Session() as sess:
     # compute loss
     cont_cost = losses.content_loss(content_out, model, C_LAYER, content_weight)
     style_cost = losses.style_loss(style_out, model, S_LAYERS, style_weight_layer)
-    tv_cost = losses.total_var_loss(target_pre_var, tv_weight)
 
-    total_loss = cont_cost + tf.add_n(style_cost) + tv_cost
+    total_loss = cont_cost + tf.add_n(style_cost)
 
     train_step = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
 
@@ -263,9 +262,7 @@ with g.as_default(), g.device('/gpu:0'), tf.Session() as sess:
 
     print('  content loss: %g' % cont_cost.eval())
     print('    style loss: %g' % tf.add_n(style_cost).eval())
-    print('       tv loss: %g' % tv_cost.eval())
     print('    total loss: %g' % total_loss.eval())
-
 
     final = best
     final = final.squeeze()
@@ -275,3 +272,25 @@ with g.as_default(), g.device('/gpu:0'), tf.Session() as sess:
 
     scipy.misc.imsave(out, final)
 ```
+
+Now that we have implemented the loss functions, we just have to set up the training procedure to generate the image that merges the content and style of two source images. We start by creating the variable that we will optimize, i.e the generated image. To do so, we create a `tf.Variable()` initialized with random noise and the shape of the content image.
+The line `model = network_model.get_model(target_pre_var)` creates the operations graph which builds the VGG network we will use to generate the content and style representations.
+Then we instantiate the two losses we will be minimize, the content loss and the style loss, in the variables `cont_cost` and `style_cost`. Both losses are minimized at the same time, so we unify them in one node by adding them `total_loss = cont_cost + tf.add_n(style_cost)`. Remember that the function `style_loss` returns a list with the style loss of each layer specified in `S_LAYERS`. Tensorflow allows us to add all these losses with just the method `tf.add_n()`, which receives a list of tensors (of the same shape) and [produces one tensor containing the sum](http://stackoverflow.com/a/34520066/1738214).
+
+The optimizer that I use is [Adam](http://sebastianruder.com/optimizing-gradient-descent/index.html#adam). It dynamically changes the learning rate for each parameter depending on previous gradients. I chose it because it generally performs better than SGD without tunning hyper-parameters like momentum, learning rate and learning rate policy.
+
+Once we have defined the optimization operation in `train_step` we have all we need to change the initial random image until it succesfully merges the content and style of two images. We just have to call the operation `train_step.run()` inside a `for` loop, which in my code is done in the GPU but can be switched to the CPU by changing `g.device('/gpu:0')` to `g.device('/cpu:0')`.
+
+## Results
+You can view all the code in my github repo [neural-art-transfer](https://github.com/gcucurull/neural-art-transfer), which produces the following results:
+
+#### Input image:
+![input image](https://github.com/gcucurull/neural-art-transfer/raw/master/input/1-content.jpg)
+
+#### Style image:
+![style image](https://github.com/gcucurull/neural-art-transfer/raw/master/styles/1-style.jpg)
+
+#### Result image:
+![out image](https://github.com/gcucurull/neural-art-transfer/raw/master/output/1-output-new.jpg)
+
+That's all, I hope you find it useful, I will gladly answer any questions or discuss anything about the code, you can contact me through the Github repository or send me an email at `gcucurull at gmail dot com`.
