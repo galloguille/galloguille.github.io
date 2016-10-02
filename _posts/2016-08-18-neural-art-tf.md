@@ -147,7 +147,7 @@ with g.as_default(), g.device('/cpu:0'), tf.Session() as sess:
 This piece of code is creating a tensorflow graph which will be run on cpu, and pre-processes the content image according to the model that we are using. In this case it just converts the RGB image to BGR and subtracts the mean pixel value of each channel. Then a placeholder with the same size as the image is created, and the model is run. 
 Notice that it is run as `model[C_LAYER]`. `C_LAYER` is the name of the layer chosen to represent content, `'conv4_2'` in my case, and `model` is a dictionary that holds the computation graph for each layer. In `model['conv4_2']` there is stored the graph of operations needed to produce the output of the layer `conv4_2`. At the end a Tensor containing the activations of the given layer for the content image is stored in `content_out`.
 
-The code for loading the style representation of the source style image is very similar, it does the almost the same but instead of getting the activations of one layer it gets the activations of several layers. This is done because `sess.run()` accepts a single operation or dictionary of operations, being each operation the activations of a given layer for the style image.
+The code for loading the style representation of the source style image is very similar, it does almost the same but instead of getting the activations of one layer it gets the activations of several layers. This is done because `sess.run()` accepts a single operation or dictionary of operations, being each operation the activations of a given layer for the style image.
 
 ```python
 # compute layer activations for style
@@ -157,4 +157,121 @@ with g.as_default(), g.device('/cpu:0'), tf.Session() as sess:
     image = tf.placeholder('float', shape=style_pre.shape)
     model = network_model.get_model(image)
     style_out = sess.run({s_l:model[s_l] for s_l in S_LAYERS}, feed_dict = {image:style_pre})
+```
+
+## Generating the new image
+
+Now we have the content and style representations of our source images stored in `content_out` and `style_out` respectively, it's time to generate the new image combining both content and style.
+
+The new image will be the result of optimizing the loss function described before by changing the pixel values of a random noise image.  First let's see how the loss is defined in **Tensorflow**.
+
+### Content Loss
+
+```python
+def content_loss(cont_out, target_out, layer, content_weight):
+    '''
+        # content loss is just the mean square error between the outputs of a given layer
+        # in the content image and the target image
+    '''
+    cont_loss = tf.reduce_sum(tf.square(tf.sub(target_out[layer], cont_out)))
+
+    # multiply the loss by its weight
+    cont_loss = tf.mul(cont_loss, content_weight, name="cont_loss")
+
+    return cont_loss
+```
+
+The code itself is quite self explanatory, it computes the mean square distance between the content representations of `cont_out` and `target_out[layer]`. See how in the last line before return the **content loss** is weighted, to allow us control the relevance of the content in the resulting image.
+
+### Style Loss
+
+```python
+def style_loss(style_out, target_out, layers, style_weight_layer):
+
+    def style_layer_loss(style_out, target_out, layer):
+        '''
+            # returns the style loss for a given layer between
+            # the style image and the target image
+        '''
+        def gram_matrix(activation):
+            flat = tf.reshape(activation, [-1, get_shape(activation)[3]]) # shape[3] is the number of feature maps
+            res = tf.matmul(flat, flat, transpose_a=True)
+            return res
+
+        N = get_shape(target_out[layer])[3] # number of feature maps
+        M = get_shape(target_out[layer])[1] * get_shape(target_out[layer])[2] # dimension of each feature map
+        
+        # compute the gram matrices of the activations of the given layer
+        style_gram = gram_matrix(style_out[layer])
+        target_gram = gram_matrix(target_out[layer])
+
+        st_loss = tf.mul(tf.reduce_sum(tf.square(tf.sub(target_gram, style_gram))), 1./((N**2) * (M**2)))
+
+        # multiply the loss by it's weight
+        st_loss = tf.mul(st_loss, style_weight_layer, name='style_loss')
+
+        #tf.add_to_collection('losses', st_loss)
+        return st_loss
+
+    losses = []
+    for s_l in layers:
+        loss = style_layer_loss(style_out, target_out, s_l)
+        losses.append(loss)
+
+    return losses
+```
+
+asdasd
+
+### Tensorflow implementation
+
+```python
+# create image merging content and style
+g = tf.Graph()
+with g.as_default(), g.device('/gpu:0'), tf.Session() as sess:
+    # init randomly
+    # white noise
+    target = tf.random_normal((1,)+content.shape)
+
+    target_pre_var = tf.Variable(target)
+
+    # build model with empty layer activations for generated target image
+    model = network_model.get_model(target_pre_var)
+
+    # compute loss
+    cont_cost = losses.content_loss(content_out, model, C_LAYER, content_weight)
+    style_cost = losses.style_loss(style_out, model, S_LAYERS, style_weight_layer)
+    tv_cost = losses.total_var_loss(target_pre_var, tv_weight)
+
+    total_loss = cont_cost + tf.add_n(style_cost) + tv_cost
+
+    train_step = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
+
+    sess.run(tf.initialize_all_variables())
+    min_loss = float("inf")
+    best = None
+    for i in range(options.iter):
+        train_step.run()
+        print('Iteration %d/%d' % (i + 1, options.iter))
+
+        if (i%5 == 0):
+            loss = total_loss.eval()
+            print('    total loss: %g' % total_loss.eval())
+            if(loss < min_loss):
+                min_loss = loss
+                best = target_pre_var.eval()
+
+    print('  content loss: %g' % cont_cost.eval())
+    print('    style loss: %g' % tf.add_n(style_cost).eval())
+    print('       tv loss: %g' % tv_cost.eval())
+    print('    total loss: %g' % total_loss.eval())
+
+
+    final = best
+    final = final.squeeze()
+    final = network_model.postprocess(final)
+
+    final = np.clip(final, 0, 255).astype(np.uint8)
+
+    scipy.misc.imsave(out, final)
 ```
