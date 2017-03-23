@@ -5,16 +5,9 @@ permalink: /about/
 tags: about
 ---
 
-This Jekyll theme was crafted with <3 by [John Otander](http://johnotander.com)
-([@4lpine](https://twitter.com/4lpine)).
+Hello,
 
-Checkout the [Github repository](https://github.com/johnotander/pixyll) to download it,
-request a feature, report a bug, or contribute. It's free, and open source
-([MIT](http://opensource.org/licenses/MIT)).
+I am Guillem Cucurull and I'm currently studying a Master in Computer Vision in Barcelona.
+As you can see in my posts, I'm highly interested in Machine Learning and Deep Learning.
 
-Thanks to the following:
-
-* [BASSCSS](http://basscss.com)
-* [Jekyll](http://jekyllrb.com)
-* [Refills](http://refills.bourbon.io/)
-* [Type Scale](http://type-scale.com/)
+You can find my on Github [https://github.com/gcucurull](https://github.com/gcucurull) to see what I'm doing. I also have an [StackOverflow profile](http://stackoverflow.com/users/1738214/gcucurull?tab=profile) where I answer some questions about deep learning and Tensorflow among others.
