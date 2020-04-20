@@ -2,7 +2,8 @@
 layout:     post
 title:      Neural art style transfer in Tensorflow
 date:       2016-08-18 22:21:58
-summary:    "In order to practise a little bit with Tensorflow I have implemented the paper A Neural Algorithm of Artistic Style. I think it is an easy algorithm to code, and I encourage all the people who want to learn about Deep Learning or the ones who are trying to learn how to use a new fraemeowrk to implement it themselves."
+comments: true
+summary:    "In order to practise a little bit with Tensorflow I have implemented the paper A Neural Algorithm of Artistic Style. I think it is an easy algorithm to code, and I encourage all the people who want to learn about Deep Learning or the ones who are trying to learn how to use a new framework to implement it themselves."
 categories: tensorflow style-transfer
 ---
 
@@ -12,7 +13,7 @@ I decided to implement the paper "A Neural Algorithm of Artistic Style" by Gatys
 
 # Neural Art Style Transfer
 
-Let's see how to use a Convolutional Neural Network to merge the style and content of two images. 
+Let's see how to use a Convolutional Neural Network to merge the style and content of two images.
 Essentially, what we want is to capture the content of an image and the artistic style of another image, and create a new image which has the content of the first image represented with the style of the latter image.
 
 This can be achieved by generating a random noise image and then changing its pixels values until its content representation is similar to the content representation of the original image and its artistic representation is similar to the artistic style representation of the style reference image.
@@ -103,7 +104,7 @@ for layer in layers:
         W_conv = tf.constant(net_data[layer+'_W'])
         b_conv = tf.constant(net_data[layer+'_b'])
         conv_out = conv2d(current, W_conv, stride=1, padding='SAME')
-        
+
         current = tf.nn.bias_add(conv_out, b_conv)
 
     elif layer_type == 'pool':
@@ -117,7 +118,7 @@ for layer in layers:
 return model
 ```
 
-You can see the whole loading model process and the auxiliary functions `conv2d()`, `get_type()`, `max_pool()` [here](https://github.com/gcucurull/neural-art-transfer/blob/master/models/vgg.py), but the most important part is the one I just explained. This file defines the function `get_model()` which will be used later to build the computation graph of the CNN that we want to use. 
+You can see the whole loading model process and the auxiliary functions `conv2d()`, `get_type()`, `max_pool()` [here](https://github.com/gcucurull/neural-art-transfer/blob/master/models/vgg.py), but the most important part is the one I just explained. This file defines the function `get_model()` which will be used later to build the computation graph of the CNN that we want to use.
 
 ## Content and Style representations
 Once we have a CNN that will process the images it is time to get the content and style representations of the source images, which will be used to generate the resulting image.
@@ -144,7 +145,7 @@ with g.as_default(), g.device('/cpu:0'), tf.Session() as sess:
     content_out = sess.run(model[C_LAYER], feed_dict = {image:content_pre})
 ```
 
-This piece of code is creating a tensorflow graph which will be run on cpu, and pre-processes the content image according to the model that we are using. In this case it just converts the RGB image to BGR and subtracts the mean pixel value of each channel. Then a placeholder with the same size as the image is created, and the model is run. 
+This piece of code is creating a tensorflow graph which will be run on cpu, and pre-processes the content image according to the model that we are using. In this case it just converts the RGB image to BGR and subtracts the mean pixel value of each channel. Then a placeholder with the same size as the image is created, and the model is run.
 Notice that it is run as `model[C_LAYER]`. `C_LAYER` is the name of the layer chosen to represent content, `'conv4_2'` in my case, and `model` is a dictionary that holds the computation graph for each layer. In `model['conv4_2']` there is stored the graph of operations needed to produce the output of the layer `conv4_2`. At the end a Tensor containing the activations of the given layer for the content image is stored in `content_out`.
 
 The code for loading the style representation of the source style image is very similar, it does almost the same but instead of getting the activations of one layer it gets the activations of several layers. This is done because `sess.run()` accepts a single operation or dictionary of operations, being each operation the activations of a given layer for the style image.
@@ -200,7 +201,7 @@ def style_loss(style_out, target_out, layers, style_weight_layer):
 
         N = get_shape(target_out[layer])[3] # number of feature maps
         M = get_shape(target_out[layer])[1] * get_shape(target_out[layer])[2] # dimension of each feature map
-        
+
         # compute the gram matrices of the activations of the given layer
         style_gram = gram_matrix(style_out[layer])
         target_gram = gram_matrix(target_out[layer])

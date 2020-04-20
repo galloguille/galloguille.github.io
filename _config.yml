@@ -1,8 +1,8 @@
 # Site settings
-title:       gcucurull
+title:       Guillem Cucurull's Blog
 email:       gcucurull@gmail.com
 author:      Guillem Cucurull
-description: ""
+description: "Personal Blog by Guillem Cucurull"
 baseurl:     ""
 url:         "http://gcucurull.github.io"
 date_format: "%b %-d, %Y"
@@ -37,10 +37,10 @@ facebook_appid:
 facebook_comments_number: 10
 
 # Social icons
-github_username:
+github_username: gcucurull
 bitbucket_username:
-stackoverflow_id:
-twitter_username:
+stackoverflow_id: 1738214
+twitter_username: gcpreix
 skype_username:
 steam_nickname:
 google_plus_id:
