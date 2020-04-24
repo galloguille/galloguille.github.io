@@ -3,7 +3,7 @@ layout:     post
 title:      Implementing Graph Neural Networks with JAX 
 date:       2020-04-20 20:05:00
 comments:   true
-summary:    "In this post I show how to implement different Graph Neural Networks with the JAX machine learning library."
+summary:    "In this post I explain how to implement two different Graph Neural Networks using JAX. I start with an introduction to JAX and move to the implemententations of Graph Convolutional Neural Networks and Graph Attention Networks."
 categories: deep-learning
 ---
 
