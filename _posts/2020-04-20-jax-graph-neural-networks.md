@@ -139,8 +139,28 @@ In this post I'll focus on Graph Convolutional Networks (GCNs) and Graph Attenti
 ### 2.1 Graph Convolutional Networks
 First defined in the paper [Semi-Supervised Classification with Graph Convolutional Networks](https://arxiv.org/abs/1609.02907) these models are very fast, and also easy to implement, using the normalized adjacency matrix of the graph to propagate information between neighbouring nodes. You can check [this post](https://tkipf.github.io/graph-convolutional-networks/) for more details.
 
+Basically, a graph convolutional layer is defined as:
+
+$$H^{(l+1)} = ReLU \left( \hat{A}H^{(l)}\Theta^{(l)} \right) $$
+
+where \\( H^{(L)} \\) is the input to the layer, a \\( N \times C \\) matrix with as many rows and columns as nodes and input features respectively. \\( \hat{A} \\) is the degree normalized adjacency matrix and \\( \Theta^{(l)} \\) is a \\( C \times F \\) matrix of learnable parameters.
+
 ### 2.2 Graph Attention Networks
 This is another family of GNNs that we proposed in the paper [Graph Attention Networks](https://arxiv.org/abs/1710.10903). Instead of using the values in the normalized adjacency matrix to propagate information, these models compute attention coefficients between neighbouring nodes, and use those coefficients when propagating the nodes' features. Check [this post](https://petar-v.com/GAT/) for more details.
+
+A layer can still be defined as:
+
+$$ H^{(l+1)} = ReLU \left( \hat{A}H^{(l)}\Theta^{(l)} \right) $$
+
+but this time, the propagation matrix \\( \hat{A} \\) is not the normalized adjacency matrix, but a matrix whose elements are attention coefficients computed between neighbouring nodes:
+
+$$ \hat{A}_{ij} = \frac{exp(e_{ij})}{\sum_{k \in \mathcal{N}} exp(e_{ik}) } $$
+
+with the unnormalized coefficient \\( e_{ij} \\) between each pair of nodes \\( (i,j) \\) being a function of their features:
+
+$$ e_{ij} = a(\vec{h_i}, \vec{h_j}) $$
+
+The other difference between GAT layers and GCN layers is that GAT layers use a MultiHead approach, similar to the attention proposed in the [original Transformer paper](https://arxiv.org/abs/1706.03762). With this approach each layer consists on several independent attention heads whose output is concatenated. 
 
 ## 3. JAX implementation
 
@@ -176,10 +196,9 @@ out_dim = 64
 def init_fun(rng, input_shape):
     output_shape = input_shape[:-1] + (out_dim,)
     k1, k2 = random.split(rng)
-    stdv = 1. / math.sqrt(out_dim)
-    W_init, b_init = uniform(stdv), uniform(stdv)
+    W_init, b_init = glorot_uniform(), zeros
     W = W_init(k1, (input_shape[-1], out_dim))
-    b = b_init(k2, (out_dim,))
+    b = b_init(k2, (out_dim,)) if bias else None
     return output_shape, (W, b)
 ```
 The initialization function only needs two arguments:
@@ -197,17 +216,19 @@ Finally, the forward function can be easily defined as:
 ```python
 def apply_fun(params, x, adj, **kwargs):
     W, b = params
-    support = np.dot(x, W) + b
+    support = np.dot(x, W)
     out = np.matmul(adj, support)
+    if bias:
+        out += b
     return out
 ```
 
-Notice how the parameters are an argument to the function? This makes it a pure function, since it only depends on its inputs, instead of using values stored in global variables or class attributes. `params` is a tuple of parameters, like the one returned by `init_fun`. Additionally, a GCN layer needs the adjacency matrix of the graph to propagate information in the graph with `np.matmul(adj, support)`.
+Notice how the parameters are an argument to the function? This makes it a pure function since it only depends on its inputs, instead of using values stored in global variables or class attributes. `params` is a tuple of parameters, like the one returned by `init_fun`. Additionally, a GCN layer needs the adjacency matrix of the graph to propagate information in the graph with `np.matmul(adj, support)`.
 
 After defining these two functions, we can put them together to form a Graph Convolutional Layer:
 
 ```python
-def GraphConvolution(out_dim):
+def GraphConvolution(out_dim, bias=False):
     """
     Layer constructor function for a Graph Convolution layer 
     as the one in https://arxiv.org/abs/1609.02907
@@ -215,23 +236,24 @@ def GraphConvolution(out_dim):
     def init_fun(rng, input_shape):
         output_shape = input_shape[:-1] + (out_dim,)
         k1, k2 = random.split(rng)
-        stdv = 1. / math.sqrt(out_dim)
-        W_init, b_init = uniform(stdv), uniform(stdv)
+        W_init, b_init = glorot_uniform(), zeros
         W = W_init(k1, (input_shape[-1], out_dim))
-        b = b_init(k2, (out_dim,))
+        b = b_init(k2, (out_dim,)) if bias else None
         return output_shape, (W, b)
 
     def apply_fun(params, x, adj, **kwargs):
         W, b = params
-        support = np.dot(x, W) + b
+        support = np.dot(x, W)
         out = np.matmul(adj, support)
+        if bias:
+            out += b
         return out
 
     return init_fun, apply_fu
 ```
 On the forward step, this layer will project the input nodes' features using a learned projection defined by `W` and `b` and then propagate them according to the normalized adjacency matrix.
 
-To use these layers to create a Graph Convolutional Network, we follow the same approach for the model, defining an `init_fun` and an `apply_fun` functions.
+To use these layers to create a Graph Convolutional Network, we follow the same approach for the model, defining an `init_fun` and an `apply_fun` functions for the model.
 
 First, we call the layer functions like this:
 
@@ -264,10 +286,12 @@ The other function that we have to define is the `apply_fun` for the GCN model:
 ```python
 def apply_fun(params, x, adj, is_training=False, **kwargs):
     rng = kwargs.pop('rng', None)
-    x = gc1_fun(params[0], x, adj, rng=rng)
+    k1, k2, k3, k4 = random.split(rng, 4)
+    x = drop_fun(None, x, is_training=is_training, rng=k1)
+    x = gc1_fun(params[0], x, adj, rng=k2)
     x = nn.relu(x)
-    x = drop_fun(None, x, is_training=is_training, rng=rng)
-    x = gc2_fun(params[1], x, adj, rng=rng)
+    x = drop_fun(None, x, is_training=is_training, rng=k3)
+    x = gc2_fun(params[1], x, adj, rng=k4)
     x = nn.log_softmax(x)
     return x
 ```
@@ -297,11 +321,12 @@ def GCN(nhid: int, nclass: int, dropout: float):
 
     def apply_fun(params, x, adj, is_training=False, **kwargs):
         rng = kwargs.pop('rng', None)
-
-        x = gc1_fun(params[0], x, adj, rng=rng)
+        k1, k2, k3, k4 = random.split(rng, 4)
+        x = drop_fun(None, x, is_training=is_training, rng=k1)
+        x = gc1_fun(params[0], x, adj, rng=k2)
         x = nn.relu(x)
-        x = drop_fun(None, x, is_training=is_training, rng=rng)
-        x = gc2_fun(params[1], x, adj, rng=rng)
+        x = drop_fun(None, x, is_training=is_training, rng=k3)
+        x = gc2_fun(params[1], x, adj, rng=k4)
         x = nn.log_softmax(x)
         return x
     
@@ -312,10 +337,15 @@ Let's see how to use the same pattern for Graph Attention Networks now.
 
 ### 3.2 Graph Attention Networks
 
-For Graph Attention Networks we follow the exact same pattern, but the layer and model definitions are slightly more complex, since a Graph Attention Layer requires a few more operations and parameters. Let's take a look at it:
+For Graph Attention Networks we follow the exact same pattern, but the layer and model definitions are slightly more complex, since a Graph Attention Layer requires a few more operations and parameters. This time, similar to Pytorch implementation of Attention and MultiHeaded Attention layers, the layer definitions are split into two: 
+
+1. `GraphAttentionLayer`: implements a single attention layer, equivalent to one head.
+2. `MultiHeadLayer`: implementes the multi-head logic, using several `GraphAttentionLayer`.
+ 
+Let's start with the Graph Attention Layer definition:
 
 ```python
-def GraphAttentionLayer(out_dim, dropout, residual=False):
+def GraphAttentionLayer(out_dim, dropout):
     """
     Layer constructor function for a Graph Attention layer.
     """
@@ -323,13 +353,11 @@ def GraphAttentionLayer(out_dim, dropout, residual=False):
     def init_fun(rng, input_shape):
         output_shape = input_shape[:-1] + (out_dim,)
         k1, k2, k3, k4 = random.split(rng, 4)
-        stdv = 1. / math.sqrt(out_dim)
-        W_init = uniform(stdv)
-        # initial projection
+        W_init = glorot_uniform()
+        # projection
         W = W_init(k1, (input_shape[-1], out_dim))
 
-        a_init = xavier_uniform()
-        # to compute attention coefficients
+        a_init = glorot_uniform()
         a1 = a_init(k2, (out_dim, 1))
         a2 = a_init(k3, (out_dim, 1))
 
@@ -338,18 +366,18 @@ def GraphAttentionLayer(out_dim, dropout, residual=False):
     def apply_fun(params, x, adj, rng, activation=nn.elu, is_training=False, 
                   **kwargs):
         W, a1, a2 = params
-        x = np.dot(x, W) # initial projection
+        k1, k2, k3 = random.split(rng, 3) 
+        x = drop_fun(None, x, is_training=is_training, rng=k1)
+        x = np.dot(x, W)
 
         f_1 = np.dot(x, a1) 
         f_2 = np.dot(x, a2)
         logits = f_1 + f_2.T
-        # masked attention coefficients
         coefs = nn.softmax(
             nn.leaky_relu(logits, negative_slope=0.2) + np.where(adj, 0., -1e9))
 
-        k1, k2 = random.split(rng, 2) 
-        coefs = drop_fun(None, coefs, is_training=is_training, rng=k1)
-        x = drop_fun(None, x, is_training=is_training, rng=k2)
+        coefs = drop_fun(None, coefs, is_training=is_training, rng=k2)
+        x = drop_fun(None, x, is_training=is_training, rng=k3)
 
         ret = np.matmul(coefs, x)
 
@@ -357,10 +385,55 @@ def GraphAttentionLayer(out_dim, dropout, residual=False):
 
     return init_fun, apply_fun
 ```
-The layer looks a bit more complicated, but it isn't much different from the previous `GraphConvolution` layer. First, it projects the input nodes to a new space with `W` and then it propagates the nodes' features with `np.matmul(coefs, x)`. The main difference is that the values in `coefs` are attention coefficients computed from the nodes features, instead of coming from the adjacency matrix.
+The layer looks a bit more complicated, but it isn't much different from the previous `GraphConvolution` layer. First, it projects the input nodes to a new space with `W` and then it propagates the nodes' features with `np.matmul(coefs, x)`, as we did before. The main difference is that the values in `coefs` are attention coefficients computed from the node features, instead of coming from the adjacency matrix.
 `coefs` is build by computing an attention coefficient between each pair of nodes, and then using softmax over all the attention coefficients for each node, to normalize them. The input to the softmax is masked out to consider only the direct neighbours to each node.
 
-The Graph Attention Model definition seems a bit more complex too, but all I did was using several `GraphAttentionLayer` layers in parallel, to have multiple Attention heads just like in the original paper.
+With this layer, we can easily build the multi-head mechanism following the same pattern of writing and `init_fun` and an `apply_fun`:
+
+```python
+def MultiHeadLayer(nheads: int, nhid: int, dropout: float, last_layer: bool=False):
+    layer_funs, layer_inits = [], []
+    for head_i in range(nheads):
+        att_init, att_fun = GraphAttentionLayer(nhid, dropout=dropout)
+        layer_inits.append(att_init)
+        layer_funs.append(att_fun)
+    
+    def init_fun(rng, input_shape):
+        params = []
+        for att_init_fun in layer_inits:
+            rng, layer_rng = random.split(rng)
+            layer_shape, param = att_init_fun(layer_rng, input_shape)
+            params.append(param)
+        input_shape = layer_shape
+        if not last_layer:
+            # multiply by the number of heads
+            input_shape = input_shape[:-1] + (input_shape[-1]*len(layer_inits),)
+        return input_shape, params
+    
+    def apply_fun(params, x, adj, is_training=False, **kwargs):
+        rng = kwargs.pop('rng', None)
+        layer_outs = []
+        assert len(params) == nheads
+        for head_i in range(nheads):
+            layer_params = params[head_i]
+            rng, _ = random.split(rng)
+            layer_outs.append(layer_funs[head_i](
+                    layer_params, x, adj, rng=rng, is_training=is_training))
+        if not last_layer:
+            x = np.concatenate(layer_outs, axis=1)
+        else:
+            # average last layer heads
+            x = np.mean(np.stack(layer_outs), axis=0)
+
+        return x
+
+    return init_fun, apply_fun
+```
+
+As you can see, we instantiate as many `GraphAttentionLayer` layers as the number of heads, and store each of their `att_init` and `att_fun` functions into two lists. Then, we write an `init_fun` for the `MultiHeadLayer` which will initialize each head and compute the appropriate output shape.
+The `apply_fun` is not very different from the others, in this case we run the input through each head and then concatenate their outputs (or average them for the last layer).
+
+With this two pieces, the Graph Attention Model definition is quite straightforward:
 
 ```python
 def GAT(nheads: List[int], nhid: List[int], nclass: int, dropout: float):
@@ -370,69 +443,64 @@ def GAT(nheads: List[int], nhid: List[int], nclass: int, dropout: float):
 
     init_funs = []
     attn_funs = []
-    _, drop_fun = Dropout(dropout)
 
     nhid += [nclass]
-    for layer_i in range(len(nhid)): # for each layer
-        layer_funs, layer_inits = [], []
-        for head_i in range(nheads[layer_i]): # for each head
-            att_init, att_fun = GraphAttentionLayer(nhid[layer_i], 
-                                    dropout=dropout,
-                                    residual=residual)
-            layer_inits.append(att_init)
-            layer_funs.append(att_fun)
-        attn_funs.append(layer_funs)
-        init_funs.append(layer_inits)
+    for layer_i in range(len(nhid)):
+        last = layer_i == len(nhid) - 1
+        layer_init, layer_fun = MultiHeadLayer(nheads[layer_i], nhid[layer_i],
+                                    dropout=dropout, last_layer=last)
+        attn_funs.append(layer_fun)
+        init_funs.append(layer_init)
 
     def init_fun(rng, input_shape):
         params = []
-        for i, layer_inits in enumerate(init_funs):
-            for init_fun in layer_inits:
-                rng, layer_rng = random.split(rng)
-                layer_shape, param = init_fun(layer_rng, input_shape)
-                params.append(param)
+        for i, init_fun in enumerate(init_funs):
+            rng, layer_rng = random.split(rng)
+            layer_shape, param = init_fun(layer_rng, input_shape)
+            params.append(param)
             input_shape = layer_shape
-            if i < len(init_funs) - 1: # not the last layer
-                # multiply by the number of heads
-                input_shape = input_shape[:-1] + (input_shape[-1]*len(layer_inits),)
         return input_shape, params
 
     def apply_fun(params, x, adj, is_training=False, **kwargs):
         rng = kwargs.pop('rng', None)
+        rngs = random.split(rng, len(attn_funs))
 
-        x = drop_fun(None, x, is_training=is_training, rng=rng)
-
-        for layer_i in range(len(nhid)-1):
-            layer_outs = []
-            for head_i in range(nheads[layer_i]):
-                idx = layer_i * nheads[layer_i] + head_i
-                layer_params = params[idx]
-                layer_outs.append(attn_funs[layer_i][head_i](
-                        layer_params, x, adj, rng=rng, is_training=is_training))
-            x = np.concatenate(layer_outs, axis=1)
-            x = drop_fun(None, x, is_training=is_training, rng=rng)
+        for i, layer_fun in enumerate(attn_funs):
+            x = layer_fun(params[i], x, adj, rng=rngs[i], is_training=is_training)
         
-        # out layer
-        layer_outs = []
-        for head_i in range(nheads[-1]):
-            layer_i = len(nhid)-1
-            idx = layer_i * nheads[-2] + head_i
-            layer_params = params[idx]
-            layer_outs.append(attn_funs[layer_i][head_i](
-                    layer_params, x, adj, activation=lambda x: x, rng=rng,
-                    is_training=is_training))
-
-        # average last layer heads
-        x = np.mean(np.stack(layer_outs), axis=0) 
         return nn.log_softmax(x)
 
     return init_fun, apply_fun
 ```
 
-Since this model has more forward functions than the previous one, due to the multiple attention heads in each layer, I stored the forward functions in a list `attn_funs`. Each item in that list corresponds to a layer, and contains a list of the functions for each attention head in that layer.
+Something worth mentioning here is the difference between the `params` argument for the `GAT` model and the `params` for the `GCN` model. Did you notice anything different?
 
-Nevertheless, the structure of the code is the same, and both models can easily be used to implement their respective papers, as I will show in the following section.
+The difference is their structure. For `GCN`s, `params` is a `List` of `Tuple`, where each `Tuple` holds the `(W, b)` values for each layer. Therefore, it looks something like this:
 
+```python
+params = [
+    (W_0, b_0), # first layer
+    (W_1, b_1)  # output layer
+]
+```
+
+For `GAT`s, the structure is a bit different, because we have different heads at each layer. Therefore, the structure of the `params` argument is a `List` of `List` of `Tuple` like this:
+
+```python
+params = [
+    [ # first layer
+        (W_0, a1_0, a2_0), # first head
+        (W_1, a1_1, a2_1), # second head
+        ...
+        (W_k, a1_k, a2_k)  # k-th head
+    ],
+    [ # output layer
+        ...
+    ]
+]
+```
+
+You could think that this change in the structure would mean that we will have to adapt our code to support both of them. However, that is not the case, because `jax.grad()` will return the gradients of the loss w.r.t `params` with the same structure as `params`, and the optimizers only need `params` and `grads` to have the same structure, but can work with arbitrary structures, so we don't have to worry about that.
 
 ### 3.3 Main loop
 
@@ -466,7 +534,7 @@ def loss(params, batch):
     l2_loss = 5e-4 * optimizers.l2_norm(params)
     return ce_loss + l2_loss
 ```
-Here the input data consists on a list of the input node features and their true labels, along with the adjacency matrix, the `is_training` label, the random key and the set of node indexes that we want to compute the loss on. These indexes change at train and eval time, so they also have to be an input to the loss function. Notice how the parameters are the first argument of the loss function, while everything else is packed as a second argument. The reason is that when computing the gradient of the loss function w.r.t the parameters, JAX assumes by default that the first argument are the parameters. This works for most use cases, but it can always be changed to suit one's specific needs.
+Here the input data consists on a list of the input nodes features and their true labels, along with the adjacency matrix, the `is_training` label, the random key and the set of node indexes that we want to compute the loss on. These indexes change at train and eval time, so they also have to be an input to the loss function. Notice how the parameters are the first argument of the loss function, while everything else is packed as a second argument. The reason is that when computing the gradient of the loss function w.r.t the parameters, JAX assumes by default that the first argument are the parameters. This works for most use cases, but it can always be changed to suit one's specific needs.
 
 The reason for passing the random key around as an argument is that this way, the functions depend uniquely on their arguments, not on an external random key defined somewhere else, making them true pure functions.
 
@@ -516,7 +584,7 @@ for epoch in range(num_epochs):
     rng_key, _ = random.split(rng_key)
 ```
 
-I'm not showing how to load the dataset and preprocess the data, since that is dataset specific, but you can check my full implementations of [Graph Convolutional Networkss in JAX](https://github.com/gcucurull/jax-gcn) to see the full training script using the Cora dataset, as well as the use of `@jax.jit` to speed up the training. Also, I haven't explained how to use GATs instead of GCNs because the way to use them is the same. If you want to see it, check also my repository implementing [Graph Attention Networks in JAX](https://github.com/gcucurull/jax-gat).
+I'm not showing how to load the dataset and preprocess the data, since that is dataset specific, but you can check my full implementation of [Graph Convolutional Networkss in JAX](https://github.com/gcucurull/jax-gcn) to see the full training script using the Cora dataset, as well as the use of `@jax.jit` to speed up the training. Also, I haven't explained how to use GATs instead of GCNs because the way to use them is the same. If you want to see it, check also my repository implementing [Graph Attention Networks in JAX](https://github.com/gcucurull/jax-gat).
 
 ## 4. Other JAX resources
 I hope this post has helped you understand JAX and how to use it. While I was doing my implementation of these two models a resource that I found very useful and educative was Sabrina Mielke's post "[From PyTorch to JAX: towards neural net frameworks that purify stateful code](https://sjmielke.com/jax-purify.htm)". I encourage everyone to give it a good read. If you want to check other JAX codebases, you can start with [Flax](https://github.com/google/flax) and [Haiku](https://github.com/deepmind/dm-haiku), two neural networks libraries that use JAX by Google and Deepming respectively. Additionally, if you are interested in Reinforcement Learning, [RLax](https://github.com/deepmind/rlax) uses JAX to implement some RL algorithms. 
