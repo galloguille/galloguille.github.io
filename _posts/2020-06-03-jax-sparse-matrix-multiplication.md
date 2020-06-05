@@ -45,7 +45,7 @@ columns = [1, 3, 0, 1, 3]
 
 The key to implementing a simple sparse matrix multiplication is that we only care about the elements that are not zero. Since the product of two matrices \\( AB \\) is the dot product of the rows of \\(A \\) with the columns of \\(B \\), we can easily see that the non-zero columns of a row of \\(A \\) indicate which rows of a column of \\(B \\) we need to compute the result. Assuming that \\(B \\) has only one column (it is a vector), it looks like this:
 
-<img src="https://i.imgur.com/hIzzBNU.png"></img>
+<img src="https://i.imgur.com/hIzzBNU.png">
 
 
 We can go one step further and with a simple trick extend it to all rows at the same time:
